@@ -1,12 +1,10 @@
 #r "nuget: CsvHelper, 30.0.1"
-#r "nuget: FSharp.Data, 6.2.0"
+
 open System
 open System.IO
 open System.Net.Http
 open System.Net.Http.Json
 open System.Text.Json
-
-open FSharp.Data
 
 open CsvHelper
 
@@ -40,15 +38,6 @@ type RRPRecord = {
     repo : RRPRecordRepo
 }
 // ----------------------------------------------------------------------
-type WALCLRecord = {
-    DATE : string
-    WALCL : float
-}
-
-// type WALCLRecord() =
-//     member val DATE = "" with get, set
-//     member val WALCL = "" with get, set
-
 // ----------------------------------------------------------------------
 let get_recent_tga (days : int) =
 
@@ -109,78 +98,8 @@ let get_recent_rrp (days : int) =
         File.WriteAllText(path, JsonSerializer.Serialize data)
         data
 // ----------------------------------------------------------------------
-// let series = "WALCL"
-
-type Walcl = CsvProvider<"c:/temp/out.csv">
-
-let get_recent_fred (days : int, series : string) =
-
-    // let base_uri = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/dts_table_1?"
-    let path = (sprintf "%s.json" series)
-
-    if File.Exists(path) then         
-        let data = JsonSerializer.Deserialize<TGARecordData[]>(File.ReadAllText(path))        
-        let last_date = data[data.Length-1].record_date
-        printfn "Retrieving records since: %s" last_date
-        let uri = sprintf "%sfilter=record_date:gt:%s,account_type:eq:Treasury General Account (TGA) Closing Balance&fields=record_date,open_today_bal&page[number]=1&page[size]=300" base_uri last_date
-        let result_alt = (new HttpClient()).GetFromJsonAsync<TGARecord>(uri).Result
-
-        if result_alt.data.Length > 0 then
-            printfn "New records retrieved: %d" result_alt.data.Length
-            let new_data = Array.append data result_alt.data
-            File.WriteAllText(path, JsonSerializer.Serialize new_data)
-            new_data
-        else
-            printfn "No new records retrieved"
-            data        
-    else
-        printfn "Retrieving %s data" series
-        let date = DateTime.Now.AddDays(-days).ToString("yyyy-MM-dd")
-        // let uri = sprintf "%sfilter=record_date:gt:%s,account_type:eq:Treasury General Account (TGA) Closing Balance&fields=record_date,open_today_bal&page[number]=1&page[size]=300" base_uri date    
-        let uri = sprintf  "https://fred.stlouisfed.org/graph/fredgraph.csv?id=%s&cosd=%s" series date    
-        
-        let data = (new HttpClient()).GetFromJsonAsync<WALCLRecord[]>(uri).Result
-
-        let client = new HttpClient()
-
-        let str = client.GetStringAsync(uri).Result
-
-        // File.WriteAllText("c:/temp/out.csv", str)
-
-        // use reader = new StreamReader("c:/temp/out.csv")
-
-        // use csv_reader = new CsvReader(reader, System.Globalization.CultureInfo.InvariantCulture)
-        // let stream = new MemoryStream()
-        // let writer = new StreamWriter(stream)
-        // writer.Write(str)
-        // writer.Flush()
-        // stream.Position = 0
-
-        use string_reader = new StringReader(str)
-        use csv_reader = new CsvReader(string_reader, System.Globalization.CultureInfo.InvariantCulture)
-
-        let records = csv_reader.GetRecords<WALCLRecord>()
-        
-        let arr = records |> Array.ofSeq
-
-        arr[0].DATE
-        arr[1].WALCL
-
-        str
 
 
-
-        let result_load = Walcl.Load(string_reader)
-
-        result_load.Rows
-
-
-
-
-
-        printfn "Retrieved %d records" data.Length
-        File.WriteAllText(path, JsonSerializer.Serialize data)
-        data
 
 
 
