@@ -1,20 +1,18 @@
 #r "nuget: CsvHelper, 30.0.1"
 #r "nuget: FSharp.Json, 0.4.1"
-#r "nuget: Flurl.Http, 3.2.4"
+#r "nuget: Fli, 1.0.1"
 
 open System
 open System.IO
 open System.Net.Http
 open System.Net.Http.Json
 open System.Text.Json
-open System.Linq
-
-open CsvHelper
-// ----------------------------------------------------------------------
-#r "nuget: Fli, 1.0.1"
-open System.Text.Json
+open FSharp.Json
 open Fli
+open CsvHelper
 
+fsi.ShowDeclarationValues <- false
+// ----------------------------------------------------------------------
 let format_table seq =
     let json = JsonSerializer.Serialize seq
     System.IO.File.WriteAllText("c:/temp/out.json", json)
@@ -27,25 +25,7 @@ let format_table seq =
     | Some(txt) -> printfn "%s" txt
     | None -> printfn "issue"
 // ----------------------------------------------------------------------
-open System.Reflection
-open FSharp.Reflection
-
-let printTable<'T> (items: seq<'T>) =
-    let genArgs = items.GetType().GenericTypeArguments
-    assert (genArgs.Length = 1)
-    let itemType = genArgs[0]
-    assert (FSharpType.IsRecord itemType)
-    let fieldNames = FSharpType.GetRecordFields itemType |> Array.map (fun propInfo -> propInfo.Name)
-    printfn $"""{fieldNames |> Array.iter (printf "%10s")}"""
-    printfn $""" {Array.replicate fieldNames.Length "_________" |> String.concat " "}"""
-    let printFields item =
-        let fields =  FSharpValue.GetRecordFields item
-        printfn $"""{fields |> Array.map string |> Array.iter (printf "%10s")}"""
-    items |> Seq.iter printFields
-// ----------------------------------------------------------------------
-
 let days = 365
-
 // ----------------------------------------------------------------------
 type TGARecordData = {
     record_date           : string
@@ -55,26 +35,7 @@ type TGARecordData = {
 type TGARecord = {
     data  : TGARecordData[]
 }
-// ----------------------------------------------------------------------
 
-type RRPRecordRepoOperation = {
-    operationId      : string
-    operationDate    : string
-    operationType    : string
-    note             : string
-    // totalAmtAccepted : int
-    totalAmtAccepted : int64
-}
-
-type RRPRecordRepo = {
-    operations : RRPRecordRepoOperation[]
-}
-
-type RRPRecord = {
-    repo : RRPRecordRepo
-}
-// ----------------------------------------------------------------------
-// ----------------------------------------------------------------------
 let get_recent_tga (days : int) =
 
     let base_uri = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/dts_table_1?"
@@ -104,6 +65,22 @@ let get_recent_tga (days : int) =
         File.WriteAllText(path, JsonSerializer.Serialize data)
         data
 // ----------------------------------------------------------------------
+type RRPRecordRepoOperation = {
+    operationId      : string
+    operationDate    : string
+    operationType    : string
+    note             : string
+    totalAmtAccepted : int64
+}
+
+type RRPRecordRepo = {
+    operations : RRPRecordRepoOperation[]
+}
+
+type RRPRecord = {
+    repo : RRPRecordRepo
+}
+
 let get_recent_rrp (days : int) =
     
     let path = "rrp.json"
@@ -113,9 +90,8 @@ let get_recent_rrp (days : int) =
         let last_date = data[data.Length-1].operationDate
         let date = DateTime.Parse(last_date).AddDays(1).ToString("yyyy-MM-dd")
         printfn "Retrieving records since: %s" date
-        // let uri = sprintf "%sfilter=record_date:gt:%s,account_type:eq:Treasury General Account (TGA) Closing Balance&fields=record_date,open_today_bal&page[number]=1&page[size]=300" base_uri last_date
         let uri = sprintf "https://markets.newyorkfed.org/api/rp/reverserepo/propositions/search.json?startDate=%s" date
-        let result_alt = (new HttpClient()).GetFromJsonAsync<RRPRecord>(uri).Result.repo.operations
+        let result_alt = (new HttpClient()).GetFromJsonAsync<RRPRecord>(uri).Result.repo.operations |> Array.sortBy (fun item -> item.operationDate)
 
         if result_alt.Length > 0 then
             printfn "New records retrieved: %d" result_alt.Length
@@ -134,8 +110,6 @@ let get_recent_rrp (days : int) =
         File.WriteAllText(path, JsonSerializer.Serialize data)
         data
 // ----------------------------------------------------------------------
-fsi.ShowDeclarationValues <- false
-// ----------------------------------------------------------------------
 type FREDRecordRaw = {
     date : string
     value : string
@@ -145,7 +119,7 @@ type FREDRecord = {
     date : string
     value : decimal
 }
-// ----------------------------------------------------------------------
+
 let download_fred_series series date =
 
     printfn "Retrieving records since: %s" date
@@ -201,28 +175,11 @@ let result_rrp = get_recent_rrp days
 let result_fed = get_fred_series "WALCL" "2022-01-01"
 let result_spx = get_fred_series "SP500" "2022-01-01"
 // ----------------------------------------------------------------------
-
-result_tga |> Array.take 10 |> format_table
-result_rrp |> Array.take 10 |> format_table
-result_fed |> Array.take 10 |> format_table
-result_spx |> Array.take 10 |> format_table
-
-result_tga |> Array.map (fun elt -> elt.record_date)
-result_rrp |> Array.map (fun elt -> elt.operationDate)
-result_fed |> Array.map (fun elt -> elt.date)
-result_spx |> Array.map (fun elt -> elt.date)
-
-
-
-let earliests = Array.concat [
+let earliest = Array.concat [
     (result_tga |> Array.map (fun elt -> elt.record_date)   |> Array.take 1)
     (result_rrp |> Array.map (fun elt -> elt.operationDate) |> Array.take 1)
-    (result_fed |> Array.map (fun elt -> elt.date) |> Array.take 1)
-    (result_spx |> Array.map (fun elt -> elt.date) |> Array.take 1)
-]
-
-let earliest = earliests |> Array.max
-
+    (result_fed |> Array.map (fun elt -> elt.date)          |> Array.take 1)
+    (result_spx |> Array.map (fun elt -> elt.date)          |> Array.take 1) ] |> Array.max
 
 let dates_union = Array.concat [
     result_tga |> Array.map (fun elt -> elt.record_date)
@@ -232,10 +189,7 @@ let dates_union = Array.concat [
 ] 
 
 let dates = dates_union |> Array.sort |> Array.distinct |> Array.where (fun elt -> elt >= earliest) 
-
-// |> Array.iter (fun elt -> printfn "%s" elt)
-
-
+// ----------------------------------------------------------------------
 type TableEntry = {
     date     : string
     fed      : decimal
@@ -291,42 +245,12 @@ let table = dates |> Array.map (fun date ->
 
 )
 
-
-let prev = table[0]
-
-Array.ite
-
-table |> Array.skip 1 |> Array.iter (fun elt ->
-
-    // elt.fed_change <- elt.fed - prev.fed
-
-    // { curr with fed_change =  }
-
-)
-
-
-
 let a = Array.skip 1 table
 let b = Array.take (table.Length - 1) table
 
-// let table_with_changes = Array.map2 (fun curr prev ->
-    
-//     { 
-//         curr with 
-        
-//             fed_change = curr.fed - prev.fed 
-//             rrp_change = curr.rrp - prev.rrp
-//             tga_change = curr.tga - prev.tga
-//             nl_change  = curr.nl  - prev.nl
-//     }
-// )
-
-
-let calc_changes = Array.map2 (fun curr prev ->
-    
+let calc_changes = Array.map2 (fun curr prev ->    
     { 
         curr with 
-        
             fed_change = curr.fed - prev.fed 
             rrp_change = curr.rrp - prev.rrp
             tga_change = curr.tga - prev.tga
@@ -334,104 +258,70 @@ let calc_changes = Array.map2 (fun curr prev ->
     }
 )
 
-
 let table_with_changes = calc_changes a b
+// ----------------------------------------------------------------------
 
+let val_to_color (value : decimal) =
+    if value > 0M then 
+        ConsoleColor.Green
+    else if value < 0M then
+        ConsoleColor.Red
+    else
+        ConsoleColor.White
 
-// table |> Array.take 10 |> format_table
+let write format (item : string) color =
+    Console.ForegroundColor <- color
+    Console.Write(format, item)
+    Console.ResetColor()
 
-// table_with_changes |> Array.take 50 |> format_table
+let header = "DATE                     WALCL              CHANGE                 RRP              CHANGE                 TGA              CHANGE       NET LIQUIDITY              CHANGE    SPX FV"
 
+printfn "%s" header
 
-// dates |> Array.iter (fun elt -> printfn "%s" elt)
+table_with_changes |> Array.iter (fun elt ->
 
-// dates |> Array.sort |> Array.iter (fun elt -> printfn "%s" elt)
+    printf "%s" elt.date
+    printf "%20s" (elt.fed.ToString("N0"))
+    write "{0,20}" (elt.fed_change.ToString("N0")) (val_to_color elt.fed_change)
+    printf "%20s" (elt.rrp.ToString("N0"))
+    write "{0,20}" (elt.rrp_change.ToString("N0")) (val_to_color elt.rrp_change)
+    printf "%20s" (elt.tga.ToString("N0"))
+    write "{0,20}" (elt.tga_change.ToString("N0")) (val_to_color elt.tga_change)
+    printf "%20s" (elt.nl.ToString("N0"))
+    write "{0,20}" (elt.nl_change.ToString("N0")) (val_to_color elt.nl_change)
+    printf "%10s" (elt.spx_fv.ToString("N0"))
+    printfn ""
+    ()
+)
 
-// result_tga |> Array.map (fun elt -> elt.open_today_bal)
+printfn "%s" header
 
-// result_tga |> format_table
-// result_rrp |> format_table
-// result_fed |> format_table
-// result_spx |> format_table
-
-let abc = {| 
-    abc = 10 
-    bcd = {|
-        xyz = 20
-        cde = 30
-    |}
-|}
-
-open FSharp.Json
-
-Json.serialize abc
-
+// ----------------------------------------------------------------------
 let item = {|
-
     chart = {|
-
         ``type`` = "bar"
-
         data = {|
-
             labels = table_with_changes |> Array.map (fun elt -> elt.date )
-
             datasets = [|
-
                 {| label = "NL";    data = table_with_changes |> Array.map (fun elt -> elt.nl  / 1000M / 1000M / 1000M / 1000M ); hidden = false |}
                 {| label = "WALCL"; data = table_with_changes |> Array.map (fun elt -> elt.fed / 1000M / 1000M / 1000M / 1000M ); hidden = true |}
                 {| label = "RRP";   data = table_with_changes |> Array.map (fun elt -> elt.rrp / 1000M / 1000M / 1000M / 1000M ); hidden = true |}
                 {| label = "TGA";   data = table_with_changes |> Array.map (fun elt -> elt.tga / 1000M / 1000M / 1000M / 1000M ); hidden = true |}                
-
             |]
-
         |}
-
     |}
-
 |}
 
-open Flurl.Http
-
-let uri = "https://quickchart.io/chart/create"
-
-let json = Json.serialize item
-
-let content = new StringContent(json, Text.Encoding.UTF8, "application/json")
-
-let result_post = (new HttpClient()).PostAsync(uri, content).Result
-
-result_post.Content.ReadAsStringAsync().Result
-
-let result_item = Json.deserialize<{| success : bool; url : string |}> (result_post.Content.ReadAsStringAsync().Result)
-
-
-result_item.url
-
-
-    // let result_cli = (cli {
-    //     Shell PS
-    //     Command "Get-Content c:\\temp\\out.json | ConvertFrom-Json | Format-Table *"
-    // } |> Command.execute)
-
-// let result_alt = (new HttpClient()).GetFromJsonAsync<TGARecord>(uri).Result
-
-
-// Json.serialize item
-
-
-// [| 10, 20, 30 |]
+let result_item = Json.deserialize<{| success : bool; url : string |}> (
+    (new HttpClient())
+        .PostAsync(
+            "https://quickchart.io/chart/create", 
+            new StringContent(Json.serialize item, Text.Encoding.UTF8, "application/json"))
+        .Result.Content.ReadAsStringAsync().Result)
 
 let chart_id = (new System.Uri(result_item.url)).Segments |> Array.last
-
-// result_item.url
 
 cli {
     Shell PS
     Command (sprintf "Start-Process https://quickchart.io/chart-maker/view/%s" chart_id)
 } |> Command.execute
-
-// let result_cli = (cli {
-//     Shell PS
-//     Command "Get-Content c:\\temp\\out.json | ConvertFrom-Json | Format-Table *"
-// } |> Command.execute)
