@@ -260,7 +260,6 @@ let calc_changes = Array.map2 (fun curr prev ->
 
 let table_with_changes = calc_changes a b
 // ----------------------------------------------------------------------
-
 let val_to_color (value : decimal) =
     if value > 0M then 
         ConsoleColor.Green
@@ -274,28 +273,24 @@ let write format (item : string) color =
     Console.Write(format, item)
     Console.ResetColor()
 
+let write_change format (item : decimal) =
+    write "{0,20}" (item.ToString("N0")) (val_to_color item)
+
 let header = "DATE                     WALCL              CHANGE                 RRP              CHANGE                 TGA              CHANGE       NET LIQUIDITY              CHANGE    SPX FV"
 
 printfn "%s" header
-
 table_with_changes |> Array.iter (fun elt ->
 
     printf "%s" elt.date
-    printf "%20s" (elt.fed.ToString("N0"))
-    write "{0,20}" (elt.fed_change.ToString("N0")) (val_to_color elt.fed_change)
-    printf "%20s" (elt.rrp.ToString("N0"))
-    write "{0,20}" (elt.rrp_change.ToString("N0")) (val_to_color elt.rrp_change)
-    printf "%20s" (elt.tga.ToString("N0"))
-    write "{0,20}" (elt.tga_change.ToString("N0")) (val_to_color elt.tga_change)
-    printf "%20s" (elt.nl.ToString("N0"))
-    write "{0,20}" (elt.nl_change.ToString("N0")) (val_to_color elt.nl_change)
+    printf "%20s" (elt.fed.ToString("N0")); write_change "{0,20}" elt.fed_change
+    printf "%20s" (elt.rrp.ToString("N0")); write_change "{0,20}" elt.rrp_change
+    printf "%20s" (elt.tga.ToString("N0")); write_change "{0,20}" elt.tga_change
+    printf "%20s" (elt.nl.ToString("N0"));  write_change "{0,20}" elt.nl_change
     printf "%10s" (elt.spx_fv.ToString("N0"))
     printfn ""
     ()
 )
-
 printfn "%s" header
-
 // ----------------------------------------------------------------------
 let item = {|
     chart = {|
